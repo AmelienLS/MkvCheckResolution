@@ -40,30 +40,41 @@ def get_video_resolution(path: Path):
     except Exception:
         return None, None
 
-def process(paths):
-    messages = []
-    for p in paths:
-        width, height = get_video_resolution(Path(p))
-        if width is None:
-            messages.append(f"{Path(p).name}: unable to determine resolution")
-        else:
-            quality = classify(width)
-            messages.append(f"{Path(p).name}: {width}x{height} ({quality})")
-    return messages
-
 
 def main(initial_paths):
     root = tk.Tk()
     root.title("MKV Resolution Checker")
 
-    listbox = tk.Listbox(root, width=60)
-    listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    style = ttk.Style(root)
+    if sys.platform == "darwin" and "aqua" in style.theme_names():
+        style.theme_use("aqua")
+
+    columns = ("file", "resolution", "quality")
+    tree = ttk.Treeview(root, columns=columns, show="headings")
+    tree.heading("file", text="File")
+    tree.heading("resolution", text="Resolution")
+    tree.heading("quality", text="Quality")
+    tree.column("file", width=300)
+    tree.column("resolution", width=100, anchor=tk.CENTER)
+    tree.column("quality", width=80, anchor=tk.CENTER)
+    tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    scrollbar = ttk.Scrollbar(root, orient="vertical", command=tree.yview)
+    tree.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     def update_list(files):
         if not files:
             return
-        for msg in process(files):
-            listbox.insert(tk.END, msg)
+        for p in files:
+            width, height = get_video_resolution(Path(p))
+            if width is None:
+                tree.insert("", tk.END, values=(Path(p).name, "Unknown", "-"))
+            else:
+                quality = classify(width)
+                tree.insert(
+                    "", tk.END, values=(Path(p).name, f"{width}x{height}", quality)
+                )
 
     def select_files():
         files = filedialog.askopenfilenames(
@@ -71,8 +82,22 @@ def main(initial_paths):
         )
         update_list(files)
 
-    btn = ttk.Button(root, text="Select MKV Files", command=select_files)
-    btn.pack(pady=(0, 10))
+    menubar = tk.Menu(root)
+    file_menu = tk.Menu(menubar, tearoff=0)
+    open_accel = "Cmd+O" if sys.platform == "darwin" else "Ctrl+O"
+    quit_accel = "Cmd+Q" if sys.platform == "darwin" else "Ctrl+Q"
+    file_menu.add_command(label="Open…", command=select_files, accelerator=open_accel)
+    file_menu.add_separator()
+    file_menu.add_command(label="Quit", command=root.quit, accelerator=quit_accel)
+    menubar.add_cascade(label="File", menu=file_menu)
+    root.config(menu=menubar)
+
+    if sys.platform == "darwin":
+        root.bind_all("<Command-o>", lambda _e: select_files())
+        root.bind_all("<Command-q>", lambda _e: root.quit())
+    else:
+        root.bind_all("<Control-o>", lambda _e: select_files())
+        root.bind_all("<Control-q>", lambda _e: root.quit())
 
     if initial_paths:
         root.after(0, lambda: update_list(initial_paths))
