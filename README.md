@@ -1,7 +1,8 @@
 # MkvCheckResolution
 
 A quick cross-platform GUI application to batch check the resolution of `.mkv` files.
-It opens a small window where each file and its resolution quality (4K, 2K, FHD, HD, SD) is listed.
+It opens a table where each file and its resolution quality (4K, 2K, FHD, HD, SD) is listed and includes a
+standard **File** menu for a more native macOS feel.
 
 ## Requirements
 - Python 3
@@ -15,7 +16,7 @@ Run the script directly:
 python mkv_resolution.py [files...]
 ```
 
-If no file paths are provided, a window opens with a **Select MKV Files** button to choose one or more videos.
+If no file paths are provided, a window opens with a **Select MKV Files** button and a **File → Open…** menu item to choose one or more videos.
 You can also drag and drop `.mkv` files onto the application icon (or provide file paths as command line arguments) and the window will display their resolutions.
 
 ## Build
@@ -28,3 +29,4 @@ python build.py
 ```
 
 The resulting executable in the `dist/` folder accepts drag-and-drop of `.mkv` files on both platforms.
+On macOS the generated `.app` can be launched by double-clicking, allowing use without the command line.
