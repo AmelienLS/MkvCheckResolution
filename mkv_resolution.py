@@ -105,5 +105,10 @@ def main(initial_paths):
     root.mainloop()
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Entry point for console script."""
     main(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    cli()
