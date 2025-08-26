@@ -1,17 +1,19 @@
-"""GUI application for checking MKV video resolutions.
+"""GUI application for inspecting MKV video metadata.
 
-Uses ffprobe to extract width and height from videos and classifies the quality
-based on the width. A simple Tkinter interface allows selecting multiple MKV
-files and displays their resolution and an estimated quality label.
+Uses ffprobe to extract resolution, codec, frame rate, audio and subtitle
+languages and classifies the quality based on the width. A simple Tkinter
+interface allows selecting multiple MKV files and displays these details in a
+table.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import tkinter as tk
 from tkinter import filedialog, ttk
@@ -35,43 +37,100 @@ def classify(width: int) -> str:
     return "Unknown"
 
 
-def get_video_resolution(path: Path) -> tuple[int | None, int | None]:
-    """Retrieve the width and height of a video using ffprobe.
+def get_video_metadata(path: Path) -> dict[str, Any]:
+    """Retrieve various metadata of a video using ffprobe.
 
-    Returns a tuple of integers if successful. On failure, ``(None, None)``
-    is returned and a warning is logged.
+    The returned dictionary may contain the keys ``width``, ``height``,
+    ``codec``, ``fps``, ``audio`` (list of ``lang (codec)`` strings) and
+    ``subtitles`` (list of ``lang (codec)`` strings). Missing values are set
+    to ``None`` or an empty list.
     """
     cmd = [
         "ffprobe",
         "-v",
         "error",
-        "-select_streams",
-        "v:0",
         "-show_entries",
-        "stream=width,height",
+        "stream=index,codec_type,codec_name,width,height,avg_frame_rate,tags",
         "-of",
-        "csv=s=x:p=0",
+        "json",
         str(path),
     ]
+    metadata: dict[str, Any] = {
+        "width": None,
+        "height": None,
+        "codec": None,
+        "fps": None,
+        "audio": [],
+        "subtitles": [],
+    }
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        width, height = map(int, result.stdout.strip().split("x"))
-        return width, height
-    except (subprocess.SubprocessError, ValueError, FileNotFoundError) as exc:
+        data = json.loads(result.stdout)
+    except (subprocess.SubprocessError, json.JSONDecodeError, FileNotFoundError) as exc:
         logger.warning("Failed to probe %s: %s", path, exc)
-        return None, None
+        return metadata
+
+    for stream in data.get("streams", []):
+        stype = stream.get("codec_type")
+        if stype == "video" and metadata["width"] is None:
+            metadata["width"] = stream.get("width")
+            metadata["height"] = stream.get("height")
+            metadata["codec"] = stream.get("codec_name")
+            rate = stream.get("avg_frame_rate")
+            if rate and rate != "0/0":
+                try:
+                    num, den = map(int, rate.split("/"))
+                    metadata["fps"] = f"{num/den:.3f}".rstrip("0").rstrip(".")
+                except ValueError:
+                    pass
+        elif stype == "audio":
+            tags = stream.get("tags", {})
+            lang = tags.get("language", "und")
+            codec = stream.get("codec_name")
+            metadata["audio"].append(
+                f"{lang} ({codec})" if codec else lang
+            )
+        elif stype == "subtitle":
+            tags = stream.get("tags", {})
+            lang = tags.get("language", "und")
+            codec = stream.get("codec_name")
+            metadata["subtitles"].append(
+                f"{lang} ({codec})" if codec else lang
+            )
+    return metadata
 
 
 def _update_list(tree: ttk.Treeview, files: Iterable[str]) -> None:
-    """Populate the tree view with resolution info for each file."""
+    """Populate the tree view with metadata info for each file."""
     for file_path in files:
-        width, height = get_video_resolution(Path(file_path))
-        if width is None:
-            tree.insert("", tk.END, values=(Path(file_path).name, "Unknown", "-"))
+        metadata = get_video_metadata(Path(file_path))
+        width = metadata["width"]
+        height = metadata["height"]
+        if width is None or height is None:
+            tree.insert(
+                "",
+                tk.END,
+                values=(Path(file_path).name, "Unknown", "-", "-", "-", "-", "-"),
+            )
             continue
         quality = classify(width)
+        resolution = f"{width}x{height}"
+        fps = metadata["fps"] or "-"
+        codec = metadata["codec"] or "-"
+        audio = ", ".join(metadata["audio"]) or "-"
+        subs = ", ".join(metadata["subtitles"]) or "-"
         tree.insert(
-            "", tk.END, values=(Path(file_path).name, f"{width}x{height}", quality)
+            "",
+            tk.END,
+            values=(
+                Path(file_path).name,
+                resolution,
+                fps,
+                codec,
+                audio,
+                subs,
+                quality,
+            ),
         )
 
 
@@ -84,13 +143,21 @@ def build_ui(initial_paths: Iterable[str]) -> tk.Tk:
     if sys.platform == "darwin" and "aqua" in style.theme_names():
         style.theme_use("aqua")
 
-    columns = ("file", "resolution", "quality")
+    columns = ("file", "resolution", "fps", "video", "audio", "subs", "quality")
     tree = ttk.Treeview(root, columns=columns, show="headings")
     tree.heading("file", text="File")
     tree.heading("resolution", text="Resolution")
+    tree.heading("fps", text="FPS")
+    tree.heading("video", text="Video")
+    tree.heading("audio", text="Audio")
+    tree.heading("subs", text="Subtitles")
     tree.heading("quality", text="Quality")
     tree.column("file", width=300)
     tree.column("resolution", width=100, anchor=tk.CENTER)
+    tree.column("fps", width=60, anchor=tk.CENTER)
+    tree.column("video", width=100, anchor=tk.CENTER)
+    tree.column("audio", width=150, anchor=tk.CENTER)
+    tree.column("subs", width=150, anchor=tk.CENTER)
     tree.column("quality", width=80, anchor=tk.CENTER)
     tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
